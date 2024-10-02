@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Extractor de Coordenadas KML a UTM</title>
+    <!-- Cargar la librería proj4.js desde un CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.6.3/proj4.js"></script>
+    <!-- Cargar la librería xlsx.js desde un CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f7fc;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        h2 {
+            margin-top: 50px;
+            color: #333;
+            text-align: center;
+            font-size: 28px;
+        }
+
+        .container {
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+            max-width: 600px;
+            width: 90%;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 10px;
+            font-size: 18px;
+            color: #555;
+        }
+
+        select, input[type="file"], button {
+            width: 100%;
+            max-width: 400px;
+            padding: 10px;
+            margin-bottom: 20px;
+            font-size: 16px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 18px;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        table {
+            width: 100%;
+            max-width: 600px;
+            margin-top: 20px;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: center;
+            border: 1px solid #ddd;
+        }
+
+        th {
+            background-color: #4CAF50;
+            color: white;
+        }
+
+        td {
+            background-color: #fff;
+        }
+
+        @media (max-width: 600px) {
+            h2 {
+                font-size: 24px;
+            }
+
+            th, td {
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Extractor de Nombres y Coordenadas de KML en UTM</h2>
+    
+    <div class="container">
+        <label for="zoneSelect">Selecciona la Zona UTM:</label>
+        <select id="zoneSelect">
+            <option value="17">Zona 17S</option>
+            <option value="18">Zona 18S</option>
+            <option value="19">Zona 19S</option>
+        </select>
+
+        <input type="file" id="kmlFile" accept=".kml">
+        <button onclick="extractCoordinates()">Extraer Coordenadas</button>
+        <button onclick="exportToExcel()">Exportar a Excel</button>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Nombre</th>
+                <th>Este (m)</th>
+                <th>Norte (m)</th>
+            </tr>
+        </thead>
+        <tbody id="resultTable">
+            <!-- Los resultados se mostrarán aquí -->
+        </tbody>
+    </table>
+
+    <script>
+        let coordinatesData = [];
+
+        function extractCoordinates() {
+            const fileInput = document.getElementById('kmlFile');
+            const resultTable = document.getElementById('resultTable');
+            const selectedZone = document.getElementById('zoneSelect').value;
+
+            if (fileInput.files.length === 0) {
+                alert('Por favor, selecciona un archivo KML');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+
+            reader.onload = function(event) {
+                const kmlContent = event.target.result;
+
+                // Parsear el archivo KML usando DOMParser
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(kmlContent, 'application/xml');
+
+                // Obtener los nombres y coordenadas
+                const placemarks = xmlDoc.getElementsByTagName('Placemark');
+                let outputHTML = '';
+
+                // Definir las proyecciones
+                const projWGS84 = proj4('EPSG:4326'); // Coordenadas geográficas
+                const projUTM = proj4(`+proj=utm +zone=${selectedZone} +south +datum=WGS84`);
+
+                // Vaciar la tabla antes de agregar los nuevos datos
+                resultTable.innerHTML = '';
+                coordinatesData = [];  // Reiniciar la lista de datos
+
+                for (let i = 0; i < placemarks.length; i++) {
+                    const name = placemarks[i].getElementsByTagName('name')[0]?.textContent || 'Sin nombre';
+                    const coordinates = placemarks[i].getElementsByTagName('coordinates')[0]?.textContent.trim() || '';
+                    
+                    if (coordinates) {
+                        // Separar los valores de coordenadas (longitud, latitud, altitud)
+                        const [longitude, latitude] = coordinates.split(',').map(Number);
+
+                        // Convertir a UTM
+                        const [east, north] = projUTM.forward([longitude, latitude]);
+
+                        // Añadir una fila a la tabla
+                        outputHTML += `<tr>
+                                        <td>${name}</td>
+                                        <td>${east.toFixed(2)}</td>
+                                        <td>${north.toFixed(2)}</td>
+                                       </tr>`;
+
+                        // Guardar en la lista de datos
+                        coordinatesData.push({ name, east: east.toFixed(2), north: north.toFixed(2) });
+                    }
+                }
+
+                // Mostrar los resultados en la tabla
+                resultTable.innerHTML = outputHTML;
+            };
+
+            reader.readAsText(file);
+        }
+
+        function exportToExcel() {
+            const table = document.querySelector('table');
+            const workbook = XLSX.utils.table_to_book(table, {sheet: "Resultados"});
+            XLSX.writeFile(workbook, 'Resultados_UTM.xlsx');
+        }
+    </script>
+
+</body>
+</html>
